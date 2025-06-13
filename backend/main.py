@@ -144,9 +144,10 @@ class LogEntry(BaseModel):
     user: Optional[str] = None
     query: Optional[str] = None
     response_time: Optional[float] = None
+    reference_documents: Optional[List[Dict[str, Any]]] = None
 
 # Utility functions
-def add_log(level: str, message: str, user: str = None, query: str = None, response_time: float = None):
+def add_log(level: str, message: str, user: str = None, query: str = None, response_time: float = None, reference_documents: List[Dict[str, Any]] = None):
     """Add a log entry to the system logs"""
     log_entry = {
         "id": len(system_logs) + 1,
@@ -155,7 +156,8 @@ def add_log(level: str, message: str, user: str = None, query: str = None, respo
         "message": message,
         "user": user,
         "query": query,
-        "response_time": response_time
+        "response_time": response_time,
+        "reference_documents": reference_documents
     }
     system_logs.append(log_entry)
     logger.info(f"{level}: {message}")
@@ -369,6 +371,15 @@ async def chat_query(message: ChatMessage, retriever: TradingKnowledgeRetriever 
         # Calculate response time
         response_time = (datetime.now() - start_time).total_seconds()
         
+        # Format reference documents for logging
+        reference_docs = []
+        for i, doc in enumerate(result.documents[:5]):  # Store top 5 most relevant documents
+            reference_docs.append({
+                "filename": doc.metadata.get("filename", "Unknown Document"),
+                "page": doc.metadata.get("chunk_index", 0) + 1,
+                "relevance_score": result.scores[i] if result.scores else 0.8
+            })
+        
         # Update statistics
         system_stats["total_queries"] += 1
         system_stats["unique_users"].add(user_id)
@@ -382,20 +393,19 @@ async def chat_query(message: ChatMessage, retriever: TradingKnowledgeRetriever 
         # Update analytics
         query_analytics[categorize_query(message.content)] += 1
         
-        # Format sources (but don't include them in the response)
-        sources = []
-        # for i, doc in enumerate(result.documents[:3]):  # Top 3 sources
-        #     sources.append({
-        #         "title": doc.metadata.get("filename", "Unknown Document"),
-        #         "page": doc.metadata.get("chunk_index", 0) + 1,
-        #         "confidence": result.scores[i] if result.scores else 0.8
-        #     })
-        
-        add_log("INFO", f"Query processed successfully using {OPENAI_MODEL_NAME}", user=user_id, query=message.content, response_time=response_time)
+        # Add log entry with reference documents
+        add_log(
+            level="INFO", 
+            message=f"Query processed successfully using {OPENAI_MODEL_NAME}", 
+            user=user_id, 
+            query=message.content, 
+            response_time=response_time,
+        )
+        add_log("INFO", f"Reference documents: {reference_docs}")
         
         return ChatResponse(
             response=response_text,
-            sources=sources,  # Empty sources list
+            sources=[],  # Empty sources list since we only want to store in logs
             chat_id=chat_id,
             response_time=response_time
         )
@@ -800,7 +810,10 @@ async def get_logs(limit: int = 100, level: Optional[str] = None, search: Option
                 log for log in filtered_logs 
                 if (search_lower in log["message"].lower() or 
                     (log.get("user") and search_lower in log["user"].lower()) or
-                    (log.get("query") and search_lower in log["query"].lower()))
+                    (log.get("query") and search_lower in log["query"].lower()) or
+                    (log.get("reference_documents") and any(
+                        search_lower in str(doc).lower() for doc in log["reference_documents"]
+                    )))
             ]
         
         # Sort by timestamp (newest first) and limit
@@ -816,7 +829,8 @@ async def get_logs(limit: int = 100, level: Optional[str] = None, search: Option
                 "message": log.get("message", ""),
                 "user": log.get("user"),
                 "query": log.get("query"),
-                "response_time": log.get("response_time")
+                "response_time": log.get("response_time"),
+                "reference_documents": log.get("reference_documents", [])
             }
             serialized_logs.append(serialized_log)
         
