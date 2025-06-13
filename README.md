@@ -1,1 +1,0 @@
-# RAG-Trading-Knowledge-Management

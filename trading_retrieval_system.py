@@ -51,6 +51,7 @@ logger = logging.getLogger(__name__)
 class RetrievalConfig:
     """Configuration class for the retrieval system"""
     embedding_model: str = "text-embedding-3-small"
+    base_url: Optional[str] = None  # For LiteLLM support
     chunk_size: int = 1000
     chunk_overlap: int = 200
     top_k_retrieval: int = 5
@@ -172,10 +173,18 @@ class TradingKnowledgeRetriever:
             if not api_key:
                 raise ValueError("OPENAI_API_KEY environment variable not set")
             
-            self.embeddings = OpenAIEmbeddings(
-                model=self.config.embedding_model,
-                openai_api_key=api_key
-            )
+            # Prepare OpenAI embeddings kwargs
+            embedding_kwargs = {
+                "model": self.config.embedding_model,
+                "openai_api_key": api_key
+            }
+            
+            # Add base_url if specified (for LiteLLM support)
+            if self.config.base_url:
+                embedding_kwargs["openai_api_base"] = self.config.base_url
+                logger.info(f"Using custom API base URL: {self.config.base_url}")
+            
+            self.embeddings = OpenAIEmbeddings(**embedding_kwargs)
             logger.info(f"Initialized embeddings with model: {self.config.embedding_model}")
             
         except Exception as e:
