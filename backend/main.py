@@ -105,7 +105,12 @@ system_stats = {
     "uptime_start": datetime.now(),
     "query_history": [],
     "error_count": 0,
-    "processing_status": "idle"
+    "processing_status": "idle",
+    "processing_progress": 0,
+    "current_step": "Idle",
+    "total_files": 0,
+    "files_processed": 0,
+    "steps_completed": []
 }
 
 # In-memory storage for demo (use Redis/DB in production)
@@ -340,45 +345,101 @@ async def process_documents_background(upload_dir: Path):
     
     try:
         add_log("INFO", "Starting document processing with LiteLLM configuration")
-        system_stats["processing_status"] = "processing"
+        
+        # Count total files
+        pdf_files = list(upload_dir.glob("*.pdf"))
+        total_files = len(pdf_files)
+        
+        # Initialize processing status
+        system_stats.update({
+            "processing_status": "processing",
+            "processing_progress": 0,
+            "current_step": "Initializing",
+            "total_files": total_files,
+            "files_processed": 0,
+            "steps_completed": ["Upload"]
+        })
+        
+        # Step 1: Initialize (5%)
+        system_stats.update({
+            "processing_progress": 5,
+            "current_step": "Setting up processing environment",
+            "steps_completed": ["Upload", "Initialize"]
+        })
         
         # Create new retriever instance with custom config
         config = create_custom_retrieval_config()
         config.pdf_folder = str(upload_dir)
         retriever = TradingKnowledgeRetriever(config)
         
-        # Build retrieval system
+        # Step 2: Text extraction (10-60%)
+        system_stats.update({
+            "processing_progress": 10,
+            "current_step": "Extracting text from PDFs",
+            "steps_completed": ["Upload", "Initialize", "Text Extraction"]
+        })
+        
+        # Build retrieval system with progress tracking
         build_stats = retriever.build_retrieval_system(str(upload_dir))
         
-        system_stats["processing_status"] = "completed"
-        system_stats["documents_processed"] = build_stats["total_documents"]
+        # Step 3: Creating embeddings (60-80%)
+        system_stats.update({
+            "processing_progress": 70,
+            "current_step": "Generating vector embeddings",
+            "steps_completed": ["Upload", "Initialize", "Text Extraction", "Embeddings"]
+        })
+        
+        # Step 4: Building vector store (80-95%)
+        system_stats.update({
+            "processing_progress": 85,
+            "current_step": "Building searchable index",
+            "steps_completed": ["Upload", "Initialize", "Text Extraction", "Embeddings", "Vector Store"]
+        })
+        
+        # Step 5: Finalizing (95-100%)
+        system_stats.update({
+            "processing_progress": 95,
+            "current_step": "Finalizing knowledge base",
+            "steps_completed": ["Upload", "Initialize", "Text Extraction", "Embeddings", "Vector Store", "Finalize"]
+        })
+        
+        # Complete
+        system_stats.update({
+            "processing_status": "completed",
+            "processing_progress": 100,
+            "current_step": "Completed",
+            "documents_processed": build_stats["total_documents"],
+            "files_processed": total_files,
+            "steps_completed": ["Upload", "Initialize", "Text Extraction", "Embeddings", "Vector Store", "Finalize", "Complete"]
+        })
         
         add_log("SUCCESS", f"Document processing completed. Processed {build_stats['total_documents']} documents")
         
     except Exception as e:
-        system_stats["processing_status"] = "error"
+        system_stats.update({
+            "processing_status": "error",
+            "current_step": f"Error: {str(e)}",
+            "processing_progress": 0
+        })
         add_log("ERROR", f"Document processing failed: {str(e)}")
 
 @app.get("/api/processing-status", response_model=ProcessingStatus)
 async def get_processing_status():
     """Get the current processing status"""
     status = system_stats.get("processing_status", "idle")
-    
-    # Mock progress for demo (in real implementation, track actual progress)
-    if status == "processing":
-        progress = min(95, (datetime.now().timestamp() % 60) * 2)  # Simulate progress
-    elif status == "completed":
-        progress = 100
-    else:
-        progress = 0
+    progress = system_stats.get("processing_progress", 0)
+    current_step = system_stats.get("current_step", "Idle")
+    steps_completed = system_stats.get("steps_completed", [])
+    total_files = system_stats.get("total_files", 0)
+    files_processed = system_stats.get("files_processed", 0)
     
     return ProcessingStatus(
         status=status,
         progress=int(progress),
-        current_step="Building vector index" if status == "processing" else "Idle",
-        steps_completed=["Upload", "Text extraction"] if progress > 50 else ["Upload"],
-        total_files=system_stats.get("documents_processed", 0),
-        files_processed=system_stats.get("documents_processed", 0) if status == "completed" else 0
+        current_step=current_step,
+        steps_completed=steps_completed,
+        total_files=total_files,
+        files_processed=files_processed
     )
 
 # Chatbot Endpoints
