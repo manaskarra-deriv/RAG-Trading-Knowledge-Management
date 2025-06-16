@@ -40,8 +40,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('api_server.log'),
-        logging.StreamHandler()
+        logging.StreamHandler()  # Only console logging in production to avoid file watching issues
     ]
 )
 logger = logging.getLogger(__name__)
@@ -935,6 +934,6 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True,
+        reload=False,  # Disable reload in production to prevent file watching loops
         log_level="info"
     ) 
