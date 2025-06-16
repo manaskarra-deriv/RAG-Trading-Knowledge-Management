@@ -167,7 +167,7 @@ class TradingKnowledgeRetriever:
         self._initialize_embeddings()
     
     def _initialize_embeddings(self):
-        """Initialize OpenAI embeddings with error handling and fallback support"""
+        """Initialize OpenAI embeddings with error handling"""
         try:
             api_key = os.getenv("OPENAI_API_KEY")
             if not api_key:
@@ -186,27 +186,6 @@ class TradingKnowledgeRetriever:
             
             self.embeddings = OpenAIEmbeddings(**embedding_kwargs)
             logger.info(f"Initialized embeddings with model: {self.config.embedding_model}")
-            
-            # Test the embeddings with a simple query
-            try:
-                test_embedding = self.embeddings.embed_query("test")
-                if test_embedding and len(test_embedding) > 0:
-                    logger.info("Embeddings API test successful")
-                else:
-                    raise ValueError("Embeddings API returned empty result")
-            except Exception as test_error:
-                if "403" in str(test_error) or "Forbidden" in str(test_error):
-                    logger.warning(f"API blocked, attempting fallback: {test_error}")
-                    # Try fallback to standard OpenAI API
-                    fallback_kwargs = {
-                        "model": self.config.embedding_model,
-                        "openai_api_key": api_key
-                        # No base_url for standard OpenAI API
-                    }
-                    self.embeddings = OpenAIEmbeddings(**fallback_kwargs)
-                    logger.info("Successfully initialized embeddings with fallback OpenAI API")
-                else:
-                    raise test_error
             
         except Exception as e:
             logger.error(f"Failed to initialize embeddings: {e}")
