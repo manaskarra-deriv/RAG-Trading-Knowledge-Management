@@ -94,8 +94,34 @@ system_stats = {
 
 # In-memory storage for demo (use Redis/DB in production)
 chat_sessions = {}
-system_logs = []
 query_analytics = defaultdict(int)
+
+# Persistent logging system
+LOGS_FILE = "persistent_logs.json"
+MAX_LOG_ENTRIES = 10000  # Keep last 10k entries to prevent file from growing too large
+
+def load_logs_from_file():
+    """Load logs from persistent file"""
+    try:
+        if os.path.exists(LOGS_FILE):
+            with open(LOGS_FILE, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading logs from file: {e}")
+    return []
+
+def save_logs_to_file(logs):
+    """Save logs to persistent file"""
+    try:
+        # Keep only the most recent entries to prevent file from growing too large
+        recent_logs = logs[-MAX_LOG_ENTRIES:] if len(logs) > MAX_LOG_ENTRIES else logs
+        with open(LOGS_FILE, 'w') as f:
+            json.dump(recent_logs, f, default=str, indent=2)
+    except Exception as e:
+        logger.error(f"Error saving logs to file: {e}")
+
+# Load existing logs on startup
+system_logs = load_logs_from_file()
 
 # Add conversation memory storage
 conversation_memory = defaultdict(list)  # chat_id -> list of messages
@@ -148,7 +174,7 @@ class LogEntry(BaseModel):
 
 # Utility functions
 def add_log(level: str, message: str, user: str = None, query: str = None, response_time: float = None):
-    """Add a log entry to the system logs"""
+    """Add a log entry to the system logs and save to persistent storage"""
     log_entry = {
         "id": len(system_logs) + 1,
         "timestamp": datetime.now(),
@@ -159,6 +185,10 @@ def add_log(level: str, message: str, user: str = None, query: str = None, respo
         "response_time": response_time
     }
     system_logs.append(log_entry)
+    
+    # Save to persistent file
+    save_logs_to_file(system_logs)
+    
     logger.info(f"{level}: {message}")
 
 def create_custom_retrieval_config():
@@ -197,6 +227,7 @@ async def startup_event():
     """Initialize the application on startup"""
     global retriever
     add_log("INFO", f"Trading RAG API server starting up with LiteLLM support")
+    add_log("INFO", f"Loaded {len(system_logs)} existing log entries from persistent storage")
     add_log("INFO", f"API Base URL: {API_BASE_URL}")
     add_log("INFO", f"Chat Model: {OPENAI_MODEL_NAME}")
     add_log("INFO", f"Embedding Model: {EMBEDDING_MODEL}")

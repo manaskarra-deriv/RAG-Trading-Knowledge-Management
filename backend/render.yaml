@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: trading-rag-backend
+    env: python
+    region: oregon
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    healthCheckPath: /health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: API_BASE_URL
+        value: https://api.openai.com/v1
+      - key: OPENAI_MODEL_NAME
+        value: gpt-3.5-turbo
+      - key: EMBEDDING_MODEL
+        value: text-embedding-3-small 
