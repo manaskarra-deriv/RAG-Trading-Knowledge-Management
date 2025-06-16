@@ -1,6 +1,6 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, FileText, CheckCircle, AlertCircle, Loader, Trash2, Download, Eye, Activity } from 'lucide-react';
+import { Upload, FileText, CheckCircle, AlertCircle, Loader, Trash2, Activity } from 'lucide-react';
 import { knowledgeBaseAPI } from '../services/api';
 
 const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
@@ -10,14 +10,13 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
     uploadStatus,
     processingSteps,
     vectorStoreStats,
-    uploadId,
     processingError
   } = knowledgeBaseState;
 
   // Helper function to update specific part of state
-  const updateState = (updates) => {
+  const updateState = useCallback((updates) => {
     setKnowledgeBaseState(prev => ({ ...prev, ...updates }));
-  };
+  }, [setKnowledgeBaseState]);
 
   const onDrop = useCallback((acceptedFiles) => {
     const newFiles = acceptedFiles.map(file => ({
@@ -58,6 +57,38 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
     multiple: true
   });
 
+  const updateProcessingStatus = useCallback((status) => {
+    const steps = [
+      { step: 'Uploading files', message: 'PDF files uploaded to server' },
+      { step: 'Text extraction', message: 'Extracting text from PDFs...' },
+      { step: 'Creating embeddings', message: 'Generating vector embeddings...' },
+      { step: 'Building vector store', message: 'Creating searchable index...' },
+      { step: 'Finalizing', message: 'Optimizing knowledge base...' }
+    ];
+
+    const updatedSteps = steps.map((step, index) => {
+      if (index < Math.floor(status.progress / 20)) {
+        return { ...step, status: 'completed' };
+      } else if (index === Math.floor(status.progress / 20)) {
+        return { ...step, status: 'processing' };
+      } else {
+        return { ...step, status: 'pending' };
+      }
+    });
+
+    // Update file progress
+    const updatedFiles = files.map(file => ({
+      ...file,
+      progress: status.progress,
+      status: status.status === 'completed' ? 'completed' : 'processing'
+    }));
+
+    updateState({
+      processingSteps: updatedSteps,
+      files: updatedFiles
+    });
+  }, [files, updateState]);
+
   // Poll processing status
   useEffect(() => {
     let intervalId;
@@ -96,39 +127,7 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
     return () => {
       if (intervalId) clearInterval(intervalId);
     };
-  }, [uploadStatus, files, updateState]);
-
-  const updateProcessingStatus = (status) => {
-    const steps = [
-      { step: 'Uploading files', message: 'PDF files uploaded to server' },
-      { step: 'Text extraction', message: 'Extracting text from PDFs...' },
-      { step: 'Creating embeddings', message: 'Generating vector embeddings...' },
-      { step: 'Building vector store', message: 'Creating searchable index...' },
-      { step: 'Finalizing', message: 'Optimizing knowledge base...' }
-    ];
-
-    const updatedSteps = steps.map((step, index) => {
-      if (index < Math.floor(status.progress / 20)) {
-        return { ...step, status: 'completed' };
-      } else if (index === Math.floor(status.progress / 20)) {
-        return { ...step, status: 'processing' };
-      } else {
-        return { ...step, status: 'pending' };
-      }
-    });
-
-    // Update file progress
-    const updatedFiles = files.map(file => ({
-      ...file,
-      progress: status.progress,
-      status: status.status === 'completed' ? 'completed' : 'processing'
-    }));
-
-    updateState({
-      processingSteps: updatedSteps,
-      files: updatedFiles
-    });
-  };
+  }, [uploadStatus, files, updateState, updateProcessingStatus]);
 
   const processFiles = async () => {
     if (files.length === 0) return;

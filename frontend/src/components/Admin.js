@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Activity, Users, MessageCircle, Database, AlertTriangle, CheckCircle, Clock, Search, Filter, Download, RefreshCw, Lock, Eye, EyeOff } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Activity, Users, MessageCircle, Database, CheckCircle, Clock, Search, Download, RefreshCw, Lock, Eye, EyeOff } from 'lucide-react';
 import { adminAPI } from '../services/api';
 
 const Admin = () => {
@@ -45,50 +45,42 @@ const Admin = () => {
     setError(null);
   };
 
-  // Fetch data when component mounts or active section changes
-  useEffect(() => {
-    if (isAuthenticated) {
-      fetchData();
-    }
-  }, [activeSection, isAuthenticated]);
-
-  // Auto-refresh data every 30 seconds
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    
-    const interval = setInterval(() => {
-      fetchData();
-    }, 30000);
-
-    return () => clearInterval(interval);
-  }, [activeSection, isAuthenticated]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     if (!isAuthenticated) return;
     
     try {
-      setError(null);
-      
-      if (activeSection === 'overview') {
-        const stats = await adminAPI.getSystemStatus(password);
-        setSystemStats(stats);
-      } else if (activeSection === 'logs') {
-        await fetchLogs();
-      } else if (activeSection === 'analytics') {
-        const analyticsData = await adminAPI.getAnalytics(password);
-        setAnalytics(analyticsData);
+      const [statusRes, logsRes, analyticsRes] = await Promise.all([
+        adminAPI.getSystemStatus(password),
+        adminAPI.getLogs(password),
+        adminAPI.getAnalytics(password)
+      ]);
+
+      if (statusRes.ok && logsRes.ok && analyticsRes.ok) {
+        setSystemStats(await statusRes.json());
+        setLogs(await logsRes.json());
+        setAnalytics(await analyticsRes.json());
+      } else {
+        throw new Error('Failed to fetch data');
       }
     } catch (error) {
-      console.error('Error fetching data:', error);
-      if (error.response?.status === 401) {
-        setAuthError('Session expired. Please re-enter password.');
+      console.error('Error fetching admin data:', error);
+      if (error.message.includes('401') || error.message.includes('Unauthorized')) {
         setIsAuthenticated(false);
         setPassword('');
-      } else {
-        setError(error.response?.data?.detail || error.message);
       }
     }
-  };
+  }, [isAuthenticated, password]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      const interval = setInterval(fetchData, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [fetchData, isAuthenticated]);
 
   const fetchLogs = async () => {
     if (!isAuthenticated) return;

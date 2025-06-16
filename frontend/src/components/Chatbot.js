@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Plus, MessageSquare, Bot, User, Copy, RotateCcw, Trash2 } from 'lucide-react';
+import { Send, Plus, MessageSquare, Bot, User, Copy, Trash2 } from 'lucide-react';
 import { chatAPI } from '../services/api';
 
 const Chatbot = ({ chatState, setChatState }) => {
@@ -98,15 +98,6 @@ const Chatbot = ({ chatState, setChatState }) => {
       }));
       setError(null);
     }
-  };
-
-  const updateChatTitle = (chatId, newTitle) => {
-    setChatState(prev => ({
-      ...prev,
-      chats: prev.chats.map(chat => 
-        chat.id === chatId ? { ...chat, title: newTitle } : chat
-      )
-    }));
   };
 
   const sendMessage = async () => {
@@ -222,8 +213,7 @@ const Chatbot = ({ chatState, setChatState }) => {
   const formatMessageContent = (content) => {
     if (!content) return '';
     
-    // Split content into parts, handling bold formatting
-    const parts = [];
+    // Split content into lines for processing
     const lines = content.split('\n');
     
     return lines.map((line, lineIndex) => {
