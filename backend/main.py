@@ -19,6 +19,7 @@ import shutil
 import hashlib
 from collections import defaultdict
 import re
+import time
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,6 +35,7 @@ load_dotenv()
 import sys
 sys.path.append('..')
 from trading_retrieval_system import TradingKnowledgeRetriever, RetrievalConfig
+from langchain_community.vectorstores import FAISS
 
 # Configure logging
 logging.basicConfig(
@@ -372,7 +374,7 @@ async def process_documents_background(upload_dir: Path):
         config.pdf_folder = str(upload_dir)
         retriever = TradingKnowledgeRetriever(config)
         
-        # Step 2: Text extraction (10-60%)
+        # Step 2: Text extraction (10%)
         system_stats.update({
             "processing_progress": 10,
             "current_step": "Extracting text from PDFs",
@@ -380,40 +382,67 @@ async def process_documents_background(upload_dir: Path):
         })
         
         # Build retrieval system with progress tracking
-        build_stats = retriever.build_retrieval_system(str(upload_dir))
+        # We'll manually track progress during the build process
+        start_time = time.time()
+        folder_path = Path(upload_dir)
         
-        # Step 3: Creating embeddings (60-80%)
+        logger.info("Starting retrieval system build...")
+        
+        # Load and process documents with progress tracking
+        documents = await load_and_chunk_documents_with_progress(retriever, folder_path, total_files)
+        
+        if not documents:
+            raise ValueError("No documents were successfully processed")
+        
+        retriever.documents = documents
+        
+        # Step 3: Creating embeddings (70%)
         system_stats.update({
             "processing_progress": 70,
             "current_step": "Generating vector embeddings",
             "steps_completed": ["Upload", "Initialize", "Text Extraction", "Embeddings"]
         })
         
-        # Step 4: Building vector store (80-95%)
+        # Build FAISS index
+        logger.info("Building FAISS vector store...")
+        retriever.vector_store = FAISS.from_documents(documents, retriever.embeddings)
+        
+        # Step 4: Building vector store (85%)
         system_stats.update({
             "processing_progress": 85,
             "current_step": "Building searchable index",
             "steps_completed": ["Upload", "Initialize", "Text Extraction", "Embeddings", "Vector Store"]
         })
         
-        # Step 5: Finalizing (95-100%)
+        # Build BM25 index
+        logger.info("Building BM25 index...")
+        from rank_bm25 import BM25Okapi
+        tokenized_corpus = [doc.page_content.split() for doc in documents]
+        retriever.bm25 = BM25Okapi(tokenized_corpus)
+        
+        # Save indices
+        retriever._save_indices()
+        
+        # Step 5: Finalizing (95%)
         system_stats.update({
             "processing_progress": 95,
             "current_step": "Finalizing knowledge base",
             "steps_completed": ["Upload", "Initialize", "Text Extraction", "Embeddings", "Vector Store", "Finalize"]
         })
         
+        build_time = time.time() - start_time
+        
         # Complete
         system_stats.update({
             "processing_status": "completed",
             "processing_progress": 100,
             "current_step": "Completed",
-            "documents_processed": build_stats["total_documents"],
+            "documents_processed": len(documents),
             "files_processed": total_files,
             "steps_completed": ["Upload", "Initialize", "Text Extraction", "Embeddings", "Vector Store", "Finalize", "Complete"]
         })
         
-        add_log("SUCCESS", f"Document processing completed. Processed {build_stats['total_documents']} documents")
+        add_log("SUCCESS", f"Document processing completed. Processed {len(documents)} documents in {build_time:.2f}s")
         
     except Exception as e:
         system_stats.update({
@@ -422,6 +451,60 @@ async def process_documents_background(upload_dir: Path):
             "processing_progress": 0
         })
         add_log("ERROR", f"Document processing failed: {str(e)}")
+
+async def load_and_chunk_documents_with_progress(retriever, folder_path: Path, total_files: int):
+    """Load and chunk documents with real-time progress updates"""
+    from langchain.text_splitter import RecursiveCharacterTextSplitter
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from tqdm import tqdm
+    import asyncio
+    
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=retriever.config.chunk_size,
+        chunk_overlap=retriever.config.chunk_overlap,
+        separators=["\n\n", "\n", ". ", " ", ""]
+    )
+    
+    pdf_files = list(folder_path.glob("*.pdf"))
+    all_documents = []
+    
+    logger.info(f"Processing {len(pdf_files)} PDF files...")
+    
+    # Process files with progress tracking
+    def process_file_wrapper(pdf_file):
+        try:
+            documents = retriever.doc_processor.process_single_pdf(pdf_file, text_splitter)
+            return pdf_file, documents
+        except Exception as e:
+            logger.error(f"Failed to process {pdf_file}: {e}")
+            return pdf_file, []
+    
+    # Process files in parallel with progress updates
+    with ThreadPoolExecutor(max_workers=retriever.config.max_workers) as executor:
+        future_to_file = {
+            executor.submit(process_file_wrapper, pdf_file): pdf_file
+            for pdf_file in pdf_files
+        }
+        
+        files_processed = 0
+        for future in as_completed(future_to_file):
+            pdf_file, documents = future.result()
+            all_documents.extend(documents)
+            files_processed += 1
+            
+            # Update progress (10% to 70% based on file processing)
+            progress = 10 + int((files_processed / total_files) * 60)
+            system_stats.update({
+                "processing_progress": progress,
+                "current_step": f"Processing {pdf_file.name} ({files_processed}/{total_files})",
+                "files_processed": files_processed
+            })
+            
+            # Small delay to allow frontend to catch updates
+            await asyncio.sleep(0.1)
+    
+    logger.info(f"Created {len(all_documents)} document chunks")
+    return all_documents
 
 @app.get("/api/processing-status", response_model=ProcessingStatus)
 async def get_processing_status():

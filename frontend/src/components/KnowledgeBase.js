@@ -58,25 +58,31 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
   });
 
   const updateProcessingStatus = useCallback((status) => {
+    // Map backend progress to frontend steps based on actual progress values
     const steps = [
-      { step: 'Uploading files', message: 'PDF files uploaded to server' },
-      { step: 'Text extraction', message: 'Extracting text from PDFs...' },
-      { step: 'Creating embeddings', message: 'Generating vector embeddings...' },
-      { step: 'Building vector store', message: 'Creating searchable index...' },
-      { step: 'Finalizing', message: 'Optimizing knowledge base...' }
+      { step: 'Uploading files', message: 'PDF files uploaded to server', threshold: 5 },
+      { step: 'Text extraction', message: status.current_step || 'Extracting text from PDFs...', threshold: 70 },
+      { step: 'Creating embeddings', message: 'Generating vector embeddings...', threshold: 85 },
+      { step: 'Building vector store', message: 'Creating searchable index...', threshold: 95 },
+      { step: 'Finalizing', message: 'Optimizing knowledge base...', threshold: 100 }
     ];
 
     const updatedSteps = steps.map((step, index) => {
-      if (index < Math.floor(status.progress / 20)) {
+      if (status.progress >= step.threshold) {
         return { ...step, status: 'completed' };
-      } else if (index === Math.floor(status.progress / 20)) {
-        return { ...step, status: 'processing' };
+      } else if (index === 0 || status.progress >= steps[index - 1].threshold) {
+        // Current step is the one we're working on
+        return { 
+          ...step, 
+          status: 'processing',
+          message: status.current_step || step.message
+        };
       } else {
         return { ...step, status: 'pending' };
       }
     });
 
-    // Update file progress
+    // Update file progress with real progress value
     const updatedFiles = files.map(file => ({
       ...file,
       progress: status.progress,
@@ -94,12 +100,15 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
     let intervalId;
     
     if (uploadStatus === 'processing') {
+      console.log('Starting progress polling...');
       intervalId = setInterval(async () => {
         try {
           const status = await knowledgeBaseAPI.getProcessingStatus();
+          console.log('Progress update:', status);
           updateProcessingStatus(status);
           
           if (status.status === 'completed') {
+            console.log('Processing completed!');
             updateState({
               uploadStatus: 'success',
               vectorStoreStats: {
@@ -112,6 +121,7 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
             });
             clearInterval(intervalId);
           } else if (status.status === 'error') {
+            console.log('Processing error:', status.error_message);
             updateState({
               uploadStatus: 'error',
               processingError: status.error_message
@@ -125,7 +135,10 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
     }
 
     return () => {
-      if (intervalId) clearInterval(intervalId);
+      if (intervalId) {
+        console.log('Stopping progress polling');
+        clearInterval(intervalId);
+      }
     };
   }, [uploadStatus, files, updateState, updateProcessingStatus]);
 
