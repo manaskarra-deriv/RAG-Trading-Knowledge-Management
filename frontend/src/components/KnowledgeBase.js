@@ -58,7 +58,7 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
   });
 
   const updateProcessingStatus = useCallback((status) => {
-    console.log('Updating processing status:', status);
+    console.log('🔄 Updating processing status with:', status);
     
     // Map backend progress to frontend steps based on actual progress values
     const steps = [
@@ -84,6 +84,8 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
       }
     });
 
+    console.log('📋 Generated processing steps:', updatedSteps);
+
     // Update file progress with real progress value
     const updatedFiles = files.map(file => ({
       ...file,
@@ -91,18 +93,28 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
       status: status.status === 'completed' ? 'completed' : 'processing'
     }));
 
+    console.log('📁 Updated files with progress:', updatedFiles.map(f => ({ name: f.name, progress: f.progress, status: f.status })));
+
     // Add progress information to the current step
     if (status.files_processed > 0 && status.total_files > 0) {
       const currentStepIndex = updatedSteps.findIndex(step => step.status === 'processing');
       if (currentStepIndex >= 0) {
         updatedSteps[currentStepIndex].message = `${status.current_step} (${status.files_processed}/${status.total_files} files)`;
+        console.log('📝 Updated current step message:', updatedSteps[currentStepIndex].message);
       }
     }
+
+    console.log('🔄 About to update state with:', {
+      processingSteps: updatedSteps,
+      filesCount: updatedFiles.length
+    });
 
     updateState({
       processingSteps: updatedSteps,
       files: updatedFiles
     });
+
+    console.log('✅ State update completed');
   }, [files, updateState]);
 
   // Poll processing status
@@ -110,15 +122,23 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
     let intervalId;
     
     if (uploadStatus === 'processing') {
-      console.log('Starting progress polling...');
+      console.log('🔄 Starting progress polling...');
       intervalId = setInterval(async () => {
         try {
+          console.log('📡 Fetching processing status...');
           const status = await knowledgeBaseAPI.getProcessingStatus();
-          console.log('Progress update:', status);
+          console.log('📊 Progress update received:', {
+            status: status.status,
+            progress: status.progress,
+            current_step: status.current_step,
+            files_processed: status.files_processed,
+            total_files: status.total_files
+          });
+          
           updateProcessingStatus(status);
           
           if (status.status === 'completed') {
-            console.log('Processing completed!');
+            console.log('✅ Processing completed!');
             updateState({
               uploadStatus: 'success',
               vectorStoreStats: {
@@ -131,7 +151,7 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
             });
             clearInterval(intervalId);
           } else if (status.status === 'error') {
-            console.log('Processing error:', status.error_message);
+            console.log('❌ Processing error:', status.error_message);
             updateState({
               uploadStatus: 'error',
               processingError: status.error_message
@@ -139,18 +159,37 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
             clearInterval(intervalId);
           }
         } catch (error) {
-          console.error('Error polling processing status:', error);
+          console.error('🚨 Error polling processing status:', error);
+          console.error('Error details:', {
+            message: error.message,
+            response: error.response?.data,
+            status: error.response?.status
+          });
         }
       }, 2000);
+    } else {
+      console.log('⏸️ Not in processing state, current status:', uploadStatus);
     }
 
     return () => {
       if (intervalId) {
-        console.log('Stopping progress polling');
+        console.log('🛑 Stopping progress polling');
         clearInterval(intervalId);
       }
     };
   }, [uploadStatus, files, updateState, updateProcessingStatus]);
+
+  const testProcessingStatus = async () => {
+    try {
+      console.log('🧪 Testing processing status API...');
+      const status = await knowledgeBaseAPI.getProcessingStatus();
+      console.log('🧪 Test result:', status);
+      alert(`Processing Status Test:\nStatus: ${status.status}\nProgress: ${status.progress}%\nStep: ${status.current_step}\nFiles: ${status.files_processed}/${status.total_files}`);
+    } catch (error) {
+      console.error('🧪 Test failed:', error);
+      alert(`Test failed: ${error.message}`);
+    }
+  };
 
   const processFiles = async () => {
     if (files.length === 0) return;
@@ -383,6 +422,12 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
                     className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-2.5 rounded-xl transition-colors font-semibold"
                   >
                     Clear All
+                  </button>
+                  <button
+                    onClick={testProcessingStatus}
+                    className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-4 py-2.5 rounded-xl transition-colors font-semibold text-sm"
+                  >
+                    🧪 Test API
                   </button>
                 </div>
               )}
