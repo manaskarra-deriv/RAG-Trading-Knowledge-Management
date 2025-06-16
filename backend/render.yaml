@@ -12,9 +12,9 @@ services:
       - key: OPENAI_API_KEY
         sync: false
       - key: API_BASE_URL
-        value: https://api.openai.com/v1
+        value: https://litellm.deriv.ai/v1
       - key: OPENAI_MODEL_NAME
-        value: gpt-3.5-turbo
+        value: gpt-4o-mini
       - key: EMBEDDING_MODEL
         value: text-embedding-3-small
       - key: ALLOWED_ORIGINS
