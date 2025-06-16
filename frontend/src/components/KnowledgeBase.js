@@ -58,63 +58,74 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
   });
 
   const updateProcessingStatus = useCallback((status) => {
-    console.log('🔄 Updating processing status with:', status);
+    console.log('Processing status update:', status); // Debug log
     
-    // Map backend progress to frontend steps based on actual progress values
-    const steps = [
-      { step: 'Uploading files', message: 'PDF files uploaded to server', threshold: 5 },
-      { step: 'Text extraction', message: status.current_step || 'Extracting text from PDFs...', threshold: 70 },
-      { step: 'Creating embeddings', message: 'Generating vector embeddings...', threshold: 85 },
-      { step: 'Building vector store', message: 'Creating searchable index...', threshold: 95 },
-      { step: 'Finalizing', message: 'Optimizing knowledge base...', threshold: 100 }
+    // Map backend steps to frontend display
+    const stepMapping = {
+      'Initializing': { step: 'Initializing', message: 'Setting up processing environment...' },
+      'Setting up processing environment': { step: 'Initializing', message: 'Setting up processing environment...' },
+      'Extracting text from PDFs': { step: 'Text extraction', message: `Extracting text from PDFs... (${status.files_processed}/${status.total_files})` },
+      'Generating vector embeddings': { step: 'Creating embeddings', message: 'Generating vector embeddings...' },
+      'Building searchable index': { step: 'Building vector store', message: 'Creating searchable index...' },
+      'Finalizing': { step: 'Finalizing', message: 'Optimizing knowledge base...' },
+      'Idle': { step: 'Ready', message: 'Ready to process documents' }
+    };
+
+    // Create steps based on backend progress
+    const allSteps = [
+      { step: 'Uploading files', message: 'PDF files uploaded to server' },
+      { step: 'Initializing', message: 'Setting up processing environment...' },
+      { step: 'Text extraction', message: `Extracting text from PDFs... (${status.files_processed || 0}/${status.total_files || 0})` },
+      { step: 'Creating embeddings', message: 'Generating vector embeddings...' },
+      { step: 'Building vector store', message: 'Creating searchable index...' },
+      { step: 'Finalizing', message: 'Optimizing knowledge base...' }
     ];
 
-    const updatedSteps = steps.map((step, index) => {
-      if (status.progress >= step.threshold) {
+    // Update steps based on current progress and backend status
+    const updatedSteps = allSteps.map((step, index) => {
+      // Upload is always completed when we're processing
+      if (step.step === 'Uploading files') {
         return { ...step, status: 'completed' };
-      } else if (index === 0 || status.progress >= steps[index - 1].threshold) {
-        // Current step is the one we're working on
+      }
+
+      // Check if this step is completed based on backend steps_completed
+      if (status.steps_completed && status.steps_completed.includes(step.step)) {
+        return { ...step, status: 'completed' };
+      }
+
+      // Check if this is the current step
+      const currentStepInfo = stepMapping[status.current_step];
+      if (currentStepInfo && currentStepInfo.step === step.step) {
         return { 
           ...step, 
           status: 'processing',
-          message: status.current_step || step.message
+          message: currentStepInfo.message
         };
-      } else {
-        return { ...step, status: 'pending' };
       }
+
+      // Use progress percentage as fallback for step determination
+      const progressThresholds = [0, 5, 10, 70, 85, 95]; // Upload, Init, Text, Embeddings, Vector, Finalize
+      if (status.progress > progressThresholds[index]) {
+        return { ...step, status: 'completed' };
+      } else if (status.progress >= progressThresholds[index] && index > 0) {
+        return { ...step, status: 'processing' };
+      }
+
+      return { ...step, status: 'pending' };
     });
 
-    console.log('📋 Generated processing steps:', updatedSteps);
-
-    // Update file progress with real progress value
+    // Update file progress with real backend data
     const updatedFiles = files.map(file => ({
       ...file,
-      progress: status.progress,
-      status: status.status === 'completed' ? 'completed' : 'processing'
+      progress: status.progress || 0,
+      status: status.status === 'completed' ? 'completed' : 
+              status.status === 'error' ? 'error' : 'processing'
     }));
-
-    console.log('📁 Updated files with progress:', updatedFiles.map(f => ({ name: f.name, progress: f.progress, status: f.status })));
-
-    // Add progress information to the current step
-    if (status.files_processed > 0 && status.total_files > 0) {
-      const currentStepIndex = updatedSteps.findIndex(step => step.status === 'processing');
-      if (currentStepIndex >= 0) {
-        updatedSteps[currentStepIndex].message = `${status.current_step} (${status.files_processed}/${status.total_files} files)`;
-        console.log('📝 Updated current step message:', updatedSteps[currentStepIndex].message);
-      }
-    }
-
-    console.log('🔄 About to update state with:', {
-      processingSteps: updatedSteps,
-      filesCount: updatedFiles.length
-    });
 
     updateState({
       processingSteps: updatedSteps,
       files: updatedFiles
     });
-
-    console.log('✅ State update completed');
   }, [files, updateState]);
 
   // Poll processing status
@@ -122,23 +133,12 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
     let intervalId;
     
     if (uploadStatus === 'processing') {
-      console.log('🔄 Starting progress polling...');
       intervalId = setInterval(async () => {
         try {
-          console.log('📡 Fetching processing status...');
           const status = await knowledgeBaseAPI.getProcessingStatus();
-          console.log('📊 Progress update received:', {
-            status: status.status,
-            progress: status.progress,
-            current_step: status.current_step,
-            files_processed: status.files_processed,
-            total_files: status.total_files
-          });
-          
           updateProcessingStatus(status);
           
           if (status.status === 'completed') {
-            console.log('✅ Processing completed!');
             updateState({
               uploadStatus: 'success',
               vectorStoreStats: {
@@ -151,7 +151,6 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
             });
             clearInterval(intervalId);
           } else if (status.status === 'error') {
-            console.log('❌ Processing error:', status.error_message);
             updateState({
               uploadStatus: 'error',
               processingError: status.error_message
@@ -159,37 +158,15 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
             clearInterval(intervalId);
           }
         } catch (error) {
-          console.error('🚨 Error polling processing status:', error);
-          console.error('Error details:', {
-            message: error.message,
-            response: error.response?.data,
-            status: error.response?.status
-          });
+          console.error('Error polling processing status:', error);
         }
       }, 2000);
-    } else {
-      console.log('⏸️ Not in processing state, current status:', uploadStatus);
     }
 
     return () => {
-      if (intervalId) {
-        console.log('🛑 Stopping progress polling');
-        clearInterval(intervalId);
-      }
+      if (intervalId) clearInterval(intervalId);
     };
   }, [uploadStatus, files, updateState, updateProcessingStatus]);
-
-  const testProcessingStatus = async () => {
-    try {
-      console.log('🧪 Testing processing status API...');
-      const status = await knowledgeBaseAPI.getProcessingStatus();
-      console.log('🧪 Test result:', status);
-      alert(`Processing Status Test:\nStatus: ${status.status}\nProgress: ${status.progress}%\nStep: ${status.current_step}\nFiles: ${status.files_processed}/${status.total_files}`);
-    } catch (error) {
-      console.error('🧪 Test failed:', error);
-      alert(`Test failed: ${error.message}`);
-    }
-  };
 
   const processFiles = async () => {
     if (files.length === 0) return;
@@ -202,54 +179,40 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
     }
 
     try {
-      console.log('Starting file processing...');
-      
       updateState({
         uploadStatus: 'uploading',
-        processingError: null,
-        // Initialize processing steps immediately
-        processingSteps: [
-          { step: 'Uploading files', status: 'processing', message: 'Uploading PDF files to server...' },
-          { step: 'Text extraction', status: 'pending', message: 'Extracting text from PDFs...' },
-          { step: 'Creating embeddings', status: 'pending', message: 'Generating vector embeddings...' },
-          { step: 'Building vector store', status: 'pending', message: 'Creating searchable index...' },
-          { step: 'Finalizing', status: 'pending', message: 'Optimizing knowledge base...' }
-        ]
+        processingError: null
       });
 
       // Upload files
-      console.log('Uploading files...');
       const fileObjects = files.map(f => f.file);
       const uploadResponse = await knowledgeBaseAPI.uploadFiles(fileObjects);
-      
-      console.log('Upload completed, starting processing...');
       updateState({
-        uploadId: uploadResponse.upload_id,
-        // Update upload step to completed
-        processingSteps: [
-          { step: 'Uploading files', status: 'completed', message: 'PDF files uploaded successfully' },
-          { step: 'Text extraction', status: 'processing', message: 'Initializing document processing...' },
-          { step: 'Creating embeddings', status: 'pending', message: 'Generating vector embeddings...' },
-          { step: 'Building vector store', status: 'pending', message: 'Creating searchable index...' },
-          { step: 'Finalizing', status: 'pending', message: 'Optimizing knowledge base...' }
-        ]
+        uploadId: uploadResponse.upload_id
       });
 
       // Start processing
       await knowledgeBaseAPI.processDocuments(uploadResponse.upload_id);
-      
-      console.log('Processing started, switching to processing status...');
       updateState({
         uploadStatus: 'processing'
       });
 
+      // Initialize processing steps
+      updateState({
+        processingSteps: [
+          { step: 'Uploading files', status: 'completed', message: 'PDF files uploaded successfully' },
+          { step: 'Text extraction', status: 'processing', message: 'Extracting text from PDFs...' },
+          { step: 'Creating embeddings', status: 'pending', message: 'Generating vector embeddings...' },
+          { step: 'Building vector store', status: 'pending', message: 'Creating searchable index...' },
+          { step: 'Finalizing', status: 'pending', message: 'Optimizing knowledge base...' }
+        ]
+      });
+
     } catch (error) {
       console.error('Processing failed:', error);
-      const errorSteps = processingSteps.length > 0 ? processingSteps.map(step => 
+      const errorSteps = processingSteps.map(step => 
         step.status === 'processing' ? { ...step, status: 'error', message: 'Processing failed' } : step
-      ) : [
-        { step: 'Upload failed', status: 'error', message: error.response?.data?.detail || error.message }
-      ];
+      );
       
       updateState({
         uploadStatus: 'error',
@@ -342,24 +305,26 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
                   {uploadStatus === 'success' ? 'Processing Complete!' : 'Processing Status'}
                 </h3>
                 
-                {/* Overall Progress Bar */}
+                {/* Progress Bar and Stats */}
                 {uploadStatus === 'processing' && (
-                  <div className="mb-6">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-sm font-medium text-gray-700">Overall Progress</span>
-                      <span className="text-sm font-medium text-gray-700">
-                        {files.length > 0 && files[0].progress ? `${files[0].progress}%` : '0%'}
-                      </span>
+                  <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-blue-700 font-medium text-sm">Overall Progress</span>
+                      <span className="text-blue-700 font-bold text-sm">{Math.round(files[0]?.progress || 0)}%</span>
                     </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div className="w-full bg-blue-200 rounded-full h-2 mb-2">
                       <div
-                        className="bg-gradient-to-r from-red-500 to-red-600 h-2 rounded-full transition-all duration-500"
-                        style={{ width: `${files.length > 0 && files[0].progress ? files[0].progress : 0}%` }}
+                        className="bg-gradient-to-r from-blue-500 to-blue-600 h-2 rounded-full transition-all duration-500"
+                        style={{ width: `${files[0]?.progress || 0}%` }}
                       ></div>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-blue-600">
+                      <span>Processing documents...</span>
+                      <span>Files processed: {processingSteps.find(s => s.step === 'Text extraction')?.message?.match(/\d+\/\d+/) || '0/0'}</span>
                     </div>
                   </div>
                 )}
-                
+
                 <div className="space-y-4">
                   {processingSteps.map((step, index) => (
                     <div key={index} className="flex items-center space-x-4 p-4 bg-gray-50 rounded-xl border border-gray-200">
@@ -422,12 +387,6 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
                     className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-2.5 rounded-xl transition-colors font-semibold"
                   >
                     Clear All
-                  </button>
-                  <button
-                    onClick={testProcessingStatus}
-                    className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-4 py-2.5 rounded-xl transition-colors font-semibold text-sm"
-                  >
-                    🧪 Test API
                   </button>
                 </div>
               )}
