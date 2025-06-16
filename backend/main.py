@@ -18,8 +18,9 @@ from pathlib import Path
 import shutil
 import hashlib
 from collections import defaultdict
+import re
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Depends
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -179,6 +180,15 @@ def get_retriever():
     if retriever is None:
         raise HTTPException(status_code=503, detail="Retrieval system not loaded. Please process documents first.")
     return retriever
+
+def verify_admin_password(x_admin_password: str = Header(None)):
+    """Verify admin password from header"""
+    if x_admin_password != "DerivRAG":
+        raise HTTPException(
+            status_code=401, 
+            detail="Invalid admin password. Please provide the correct password in X-Admin-Password header."
+        )
+    return True
 
 # API Endpoints
 
@@ -405,6 +415,32 @@ async def chat_query(message: ChatMessage, retriever: TradingKnowledgeRetriever 
         system_stats["error_count"] += 1
         raise HTTPException(status_code=500, detail=str(e))
 
+def clean_markdown_for_chat(text: str) -> str:
+    """
+    Clean markdown formatting for better chat display
+    Converts markdown headers to plain text and improves readability
+    """
+    if not text:
+        return text
+    
+    # Convert markdown headers to plain text with better formatting
+    # ### Header -> **Header**
+    text = re.sub(r'^### (.+)$', r'**\1**', text, flags=re.MULTILINE)
+    # ## Header -> **Header**
+    text = re.sub(r'^## (.+)$', r'**\1**', text, flags=re.MULTILINE)
+    # # Header -> **Header**  
+    text = re.sub(r'^# (.+)$', r'**\1**', text, flags=re.MULTILINE)
+    
+    # Clean up any remaining markdown artifacts
+    # Remove excessive newlines
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    # Clean up list formatting - ensure proper spacing
+    text = re.sub(r'\n- ', '\n• ', text)  # Convert - to bullet points
+    text = re.sub(r'\n\* ', '\n• ', text)  # Convert * to bullet points
+    
+    return text.strip()
+
 async def generate_llm_response(query: str, documents: List, chat_history: List = None) -> str:
     """Generate a conversational response using LiteLLM/OpenAI compatible API"""
     try:
@@ -460,72 +496,29 @@ async def generate_llm_response(query: str, documents: List, chat_history: List 
             context = "\n\n".join(relevant_info)
             
             # System prompt for conversational trading assistant
-            system_prompt = """You are a knowledgeable trading information assistant. You provide accurate, structured information based on uploaded trading documents.
-
-Your approach:
-- Professional and informational
-- Present facts and definitions from source documents
-- Use clear formatting with numbered lists and bullet points
-- Be factual and comprehensive
-- Avoid giving advice or recommendations
-- Focus on explaining concepts rather than telling users what to do
+            system_prompt = """You are a helpful trading assistant. Provide clear, informative answers based on the uploaded documents.
 
 Guidelines:
-- Extract and present information referenced from the source material
-- Maintain the original structure and hierarchy when possible
-- Use numbered lists for sequences or types
-- Use bullet points for features and details
-- Be complete - don't omit important information
-- Present information objectively without advisory language
-- Describe concepts, processes, and characteristics
-- Avoid words like "should", "must", "always", "never" when giving advice
-
-Formatting Rules:
-- Use numbered lists (1., 2., 3.) for main categories/types
-- Use bullet points (•) for sub-details and features
-- Use **bold text** for key terms and concepts
-- Preserve technical terminology exactly as it appears
-- Structure information hierarchically
-- Keep formatting clean and professional
-
-Remember: Present information and explain concepts rather than providing advice or recommendations."""
+- Be conversational and natural
+- Bold **key terms** 
+- Use bullet points • for lists when helpful
+- Answer the question with appropriate detail
+- Keep it focused and readable"""
 
             # Build conversation history for context
             conversation_context = ""
             if chat_history and len(chat_history) > 0:
                 conversation_context = "\n\nPrevious conversation:\n"
-                for msg in chat_history[-10:]:  # Include last 5 exchanges (10 messages)
+                for msg in chat_history[-6:]:  # Include last 3 exchanges (6 messages)
                     role = "User" if msg["role"] == "user" else "Assistant"
                     conversation_context += f"{role}: {msg['content']}\n"
                 conversation_context += "\n"
 
-            user_prompt = f"""Based on this trading knowledge base context:
-
-{context}
+            user_prompt = f"""Context: {context}
 {conversation_context}
-Current user question: "{query}"
+Question: "{query}"
 
-Please provide a structured, informational response using the available information. Important guidelines:
-
-1. Extract complete information from the source material
-2. Preserve the original structure and hierarchy
-3. Use numbered lists for main categories/types/steps
-4. Use bullet points for sub-details and features
-5. Maintain technical accuracy and completeness
-6. Uses **bold text** for key terms and concepts
-7. Focus on explaining concepts rather than giving advice
-8. Present information directly without hedging statements or excuses about completeness
-
-Formatting requirements:
-- Use numbered lists (1., 2., 3.) for main items
-- Use bullet points (•) for sub-details
-- Structure information hierarchically
-- Preserve technical terminology exactly
-- Be complete - don't omit important details
-- Keep formatting clean and professional
-- Present information objectively without advisory language
-
-DO NOT include phrases like "Details were not fully provided" or similar hedging statements. Just present the information that is available in a clear, structured format."""
+Please answer this question using the context provided. Be helpful and clear."""
 
             response = client.chat.completions.create(
                 model=OPENAI_MODEL_NAME,
@@ -534,15 +527,20 @@ DO NOT include phrases like "Details were not fully provided" or similar hedging
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.3,
-                max_tokens=800  # Increased to handle more comprehensive responses
+                max_tokens=400  
             )
             
-            return response.choices[0].message.content.strip()
+            # Get the response text and clean markdown formatting
+            response_text = response.choices[0].message.content.strip()
+            cleaned_response = clean_markdown_for_chat(response_text)
+            
+            return cleaned_response
             
         except Exception as e:
             logger.error(f"LiteLLM API call failed, falling back to template response: {str(e)}")
             # Fallback to template-based responses
-            return generate_template_response(query, relevant_info, chat_history)
+            fallback_response = generate_template_response(query, relevant_info, chat_history)
+            return clean_markdown_for_chat(fallback_response)
             
     except Exception as e:
         logger.error(f"Error generating response: {str(e)}")
@@ -750,7 +748,7 @@ def is_clearly_irrelevant(query: str) -> bool:
 # Admin Endpoints
 
 @app.delete("/api/chat/{chat_id}/clear")
-async def clear_chat_memory(chat_id: str):
+async def clear_chat_memory(chat_id: str, admin_auth: bool = Depends(verify_admin_password)):
     """Clear conversation memory for a specific chat"""
     if chat_id in conversation_memory:
         del conversation_memory[chat_id]
@@ -760,7 +758,7 @@ async def clear_chat_memory(chat_id: str):
         return {"message": f"No conversation found for chat {chat_id}"}
 
 @app.get("/api/system-status", response_model=SystemStatus)
-async def get_system_status():
+async def get_system_status(admin_auth: bool = Depends(verify_admin_password)):
     """Get system status and statistics"""
     uptime = (datetime.now() - system_stats["uptime_start"]).total_seconds() / 3600
     
@@ -784,7 +782,7 @@ async def get_system_status():
     )
 
 @app.get("/api/logs")
-async def get_logs(limit: int = 100, level: Optional[str] = None, search: Optional[str] = None):
+async def get_logs(limit: int = 100, level: Optional[str] = None, search: Optional[str] = None, admin_auth: bool = Depends(verify_admin_password)):
     """Get system logs with optional filtering"""
     try:
         filtered_logs = system_logs.copy()
@@ -829,7 +827,7 @@ async def get_logs(limit: int = 100, level: Optional[str] = None, search: Option
         return {"logs": [], "total": 0, "error": "Failed to retrieve logs"}
 
 @app.get("/api/analytics")
-async def get_analytics():
+async def get_analytics(admin_auth: bool = Depends(verify_admin_password)):
     """Get usage analytics"""
     # Query categories analytics
     total_queries = sum(query_analytics.values()) or 1

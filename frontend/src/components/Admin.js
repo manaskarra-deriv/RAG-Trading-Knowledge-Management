@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Activity, Users, MessageCircle, Database, AlertTriangle, CheckCircle, Clock, Search, Filter, Download, RefreshCw } from 'lucide-react';
+import { Activity, Users, MessageCircle, Database, AlertTriangle, CheckCircle, Clock, Search, Filter, Download, RefreshCw, Lock, Eye, EyeOff } from 'lucide-react';
 import { adminAPI } from '../services/api';
 
 const Admin = () => {
@@ -11,48 +11,95 @@ const Admin = () => {
   const [systemStats, setSystemStats] = useState(null);
   const [analytics, setAnalytics] = useState(null);
   const [error, setError] = useState(null);
+  
+  // Password authentication state
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [password, setPassword] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [authError, setAuthError] = useState('');
+
+  // Handle password authentication
+  const handlePasswordSubmit = (e) => {
+    e.preventDefault();
+    if (passwordInput === 'DerivRAG') {
+      setPassword(passwordInput);
+      setIsAuthenticated(true);
+      setAuthError('');
+      setPasswordInput('');
+    } else {
+      setAuthError('Invalid password. Please try again.');
+      setPasswordInput('');
+    }
+  };
+
+  // Logout function
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setPassword('');
+    setPasswordInput('');
+    setAuthError('');
+    setSystemStats(null);
+    setAnalytics(null);
+    setLogs([]);
+    setError(null);
+  };
 
   // Fetch data when component mounts or active section changes
   useEffect(() => {
-    fetchData();
-  }, [activeSection]);
+    if (isAuthenticated) {
+      fetchData();
+    }
+  }, [activeSection, isAuthenticated]);
 
   // Auto-refresh data every 30 seconds
   useEffect(() => {
+    if (!isAuthenticated) return;
+    
     const interval = setInterval(() => {
       fetchData();
     }, 30000);
 
     return () => clearInterval(interval);
-  }, [activeSection]);
+  }, [activeSection, isAuthenticated]);
 
   const fetchData = async () => {
+    if (!isAuthenticated) return;
+    
     try {
       setError(null);
       
       if (activeSection === 'overview') {
-        const stats = await adminAPI.getSystemStatus();
+        const stats = await adminAPI.getSystemStatus(password);
         setSystemStats(stats);
       } else if (activeSection === 'logs') {
         await fetchLogs();
       } else if (activeSection === 'analytics') {
-        const analyticsData = await adminAPI.getAnalytics();
+        const analyticsData = await adminAPI.getAnalytics(password);
         setAnalytics(analyticsData);
       }
     } catch (error) {
       console.error('Error fetching data:', error);
-      setError(error.response?.data?.detail || error.message);
+      if (error.response?.status === 401) {
+        setAuthError('Session expired. Please re-enter password.');
+        setIsAuthenticated(false);
+        setPassword('');
+      } else {
+        setError(error.response?.data?.detail || error.message);
+      }
     }
   };
 
   const fetchLogs = async () => {
+    if (!isAuthenticated) return;
+    
     try {
       setError(null);
       const response = await adminAPI.getLogs({
         limit: 100,
         level: filterLevel === 'all' ? null : filterLevel,
         search: searchTerm || null
-      });
+      }, password);
       
       if (response.error) {
         setError(`Logs error: ${response.error}`);
@@ -62,7 +109,11 @@ const Admin = () => {
       }
     } catch (error) {
       console.error('Error fetching logs:', error);
-      if (error.response?.status === 500) {
+      if (error.response?.status === 401) {
+        setAuthError('Session expired. Please re-enter password.');
+        setIsAuthenticated(false);
+        setPassword('');
+      } else if (error.response?.status === 500) {
         setError('Server error while fetching logs. Please check if the backend is running.');
       } else if (error.code === 'ECONNREFUSED' || error.message.includes('Network Error')) {
         setError('Cannot connect to server. Please make sure the backend is running on port 8000.');
@@ -123,10 +174,79 @@ const Admin = () => {
     { id: 'analytics', name: 'Analytics', icon: Database }
   ];
 
+  // Show password prompt if not authenticated
+  if (!isAuthenticated) {
+    return (
+      <div className="h-full flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
+        <div className="w-full max-w-md p-8">
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-8">
+            <div className="text-center mb-8">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Lock className="text-red-500" size={28} />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Admin Access</h2>
+              <p className="text-gray-600">Please enter your admin password</p>
+            </div>
+
+            <form onSubmit={handlePasswordSubmit} className="space-y-6">
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+                  Admin Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    id="password"
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-colors pr-12"
+                    placeholder="Enter admin password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                  </button>
+                </div>
+              </div>
+
+              {authError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-sm text-red-600 font-medium">{authError}</p>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                className="w-full bg-gradient-to-r from-red-500 to-red-600 text-white py-3 px-4 rounded-xl font-medium hover:from-red-600 hover:to-red-700 focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-all duration-200 shadow-lg shadow-red-500/25"
+              >
+                Access Admin Panel
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full flex bg-gray-50">
       {/* Sidebar */}
       <div className="w-80 bg-white border-r border-gray-200 p-6 shadow-sm">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-lg font-bold text-gray-900">Admin Panel</h1>
+          <button
+            onClick={handleLogout}
+            className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+            title="Logout"
+          >
+            <Lock size={18} />
+          </button>
+        </div>
+        
         <nav className="space-y-3">
           {sections.map((section) => {
             const Icon = section.icon;

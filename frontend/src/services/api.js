@@ -81,23 +81,34 @@ export const chatAPI = {
 // Admin API calls
 export const adminAPI = {
   // Get system status
-  getSystemStatus: async () => {
-    const response = await api.get('/api/system-status');
+  getSystemStatus: async (adminPassword) => {
+    const response = await api.get('/api/system-status', {
+      headers: {
+        'X-Admin-Password': adminPassword
+      }
+    });
     return response.data;
   },
 
   // Get logs
-  getLogs: async (params = {}) => {
+  getLogs: async (params = {}, adminPassword) => {
     const { limit = 100, level = null, search = null } = params;
     const response = await api.get('/api/logs', {
       params: { limit, level, search },
+      headers: {
+        'X-Admin-Password': adminPassword
+      }
     });
     return response.data;
   },
 
   // Get analytics
-  getAnalytics: async () => {
-    const response = await api.get('/api/analytics');
+  getAnalytics: async (adminPassword) => {
+    const response = await api.get('/api/analytics', {
+      headers: {
+        'X-Admin-Password': adminPassword
+      }
+    });
     return response.data;
   },
 };
