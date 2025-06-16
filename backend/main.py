@@ -55,10 +55,26 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
+# CORS Configuration - Support multiple domains
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", 
+    "http://localhost:3000,http://127.0.0.1:3000"
+).split(",")
+
+# Add any additional hardcoded origins for production
+PRODUCTION_ORIGINS = [
+    "https://trading-rag-frontend.vercel.app",  # Main frontend URL
+    # Add team member domains here as needed
+]
+
+# Combine all allowed origins
+ALL_ALLOWED_ORIGINS = ALLOWED_ORIGINS + PRODUCTION_ORIGINS
+
+logger.info(f"CORS Allowed Origins: {ALL_ALLOWED_ORIGINS}")
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # React frontend
+    allow_origins=ALL_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

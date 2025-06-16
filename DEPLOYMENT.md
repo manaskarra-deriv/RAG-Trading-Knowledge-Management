@@ -38,7 +38,10 @@ OPENAI_API_KEY=your_openai_api_key_here
 API_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL_NAME=gpt-3.5-turbo
 EMBEDDING_MODEL=text-embedding-3-small
+ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,https://your-frontend-url.vercel.app
 ```
+
+**Important:** Update `ALLOWED_ORIGINS` with your actual Vercel frontend URL after deployment.
 
 ### 3. Health Check
 

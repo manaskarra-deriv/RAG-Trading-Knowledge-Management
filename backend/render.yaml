@@ -15,4 +15,6 @@ services:
       - key: OPENAI_MODEL_NAME
         value: gpt-3.5-turbo
       - key: EMBEDDING_MODEL
-        value: text-embedding-3-small 
+        value: text-embedding-3-small
+      - key: ALLOWED_ORIGINS
+        value: http://localhost:3000,http://127.0.0.1:3000,https://trading-rag-frontend.vercel.app 
