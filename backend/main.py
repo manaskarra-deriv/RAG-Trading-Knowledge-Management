@@ -372,7 +372,7 @@ async def process_documents_background(upload_dir: Path):
         config.pdf_folder = str(upload_dir)
         retriever = TradingKnowledgeRetriever(config)
         
-        # Step 2: Text extraction (10-60%)
+        # Step 2: Text extraction (10-70%)
         system_stats.update({
             "processing_progress": 10,
             "current_step": "Extracting text from PDFs",
@@ -380,18 +380,45 @@ async def process_documents_background(upload_dir: Path):
         })
         
         # Build retrieval system with progress tracking
+        # We'll update progress during the actual processing
+        def update_pdf_progress(processed_count, total_count):
+            # Text extraction takes 10-70% (60% range)
+            progress = 10 + int((processed_count / total_count) * 60)
+            system_stats.update({
+                "processing_progress": progress,
+                "current_step": f"Processing PDF {processed_count}/{total_count}",
+                "files_processed": processed_count
+            })
+        
+        # Monkey patch the retriever to report progress
+        original_build = retriever.build_retrieval_system
+        
+        def build_with_progress(pdf_folder):
+            # Call original build method
+            result = original_build(pdf_folder)
+            
+            # Update progress after text extraction is complete
+            system_stats.update({
+                "processing_progress": 70,
+                "current_step": "Text extraction completed",
+                "files_processed": total_files
+            })
+            
+            return result
+        
+        retriever.build_retrieval_system = build_with_progress
         build_stats = retriever.build_retrieval_system(str(upload_dir))
         
-        # Step 3: Creating embeddings (60-80%)
+        # Step 3: Creating embeddings (70-85%)
         system_stats.update({
-            "processing_progress": 70,
+            "processing_progress": 75,
             "current_step": "Generating vector embeddings",
             "steps_completed": ["Upload", "Initialize", "Text Extraction", "Embeddings"]
         })
         
-        # Step 4: Building vector store (80-95%)
+        # Step 4: Building vector store (85-95%)
         system_stats.update({
-            "processing_progress": 85,
+            "processing_progress": 90,
             "current_step": "Building searchable index",
             "steps_completed": ["Upload", "Initialize", "Text Extraction", "Embeddings", "Vector Store"]
         })
