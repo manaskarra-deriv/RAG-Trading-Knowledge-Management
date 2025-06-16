@@ -58,6 +58,8 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
   });
 
   const updateProcessingStatus = useCallback((status) => {
+    console.log('Updating processing status:', status);
+    
     // Map backend progress to frontend steps based on actual progress values
     const steps = [
       { step: 'Uploading files', message: 'PDF files uploaded to server', threshold: 5 },
@@ -88,6 +90,14 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
       progress: status.progress,
       status: status.status === 'completed' ? 'completed' : 'processing'
     }));
+
+    // Add progress information to the current step
+    if (status.files_processed > 0 && status.total_files > 0) {
+      const currentStepIndex = updatedSteps.findIndex(step => step.status === 'processing');
+      if (currentStepIndex >= 0) {
+        updatedSteps[currentStepIndex].message = `${status.current_step} (${status.files_processed}/${status.total_files} files)`;
+      }
+    }
 
     updateState({
       processingSteps: updatedSteps,
@@ -153,40 +163,54 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
     }
 
     try {
+      console.log('Starting file processing...');
+      
       updateState({
         uploadStatus: 'uploading',
-        processingError: null
-      });
-
-      // Upload files
-      const fileObjects = files.map(f => f.file);
-      const uploadResponse = await knowledgeBaseAPI.uploadFiles(fileObjects);
-      updateState({
-        uploadId: uploadResponse.upload_id
-      });
-
-      // Start processing
-      await knowledgeBaseAPI.processDocuments(uploadResponse.upload_id);
-      updateState({
-        uploadStatus: 'processing'
-      });
-
-      // Initialize processing steps
-      updateState({
+        processingError: null,
+        // Initialize processing steps immediately
         processingSteps: [
-          { step: 'Uploading files', status: 'completed', message: 'PDF files uploaded successfully' },
-          { step: 'Text extraction', status: 'processing', message: 'Extracting text from PDFs...' },
+          { step: 'Uploading files', status: 'processing', message: 'Uploading PDF files to server...' },
+          { step: 'Text extraction', status: 'pending', message: 'Extracting text from PDFs...' },
           { step: 'Creating embeddings', status: 'pending', message: 'Generating vector embeddings...' },
           { step: 'Building vector store', status: 'pending', message: 'Creating searchable index...' },
           { step: 'Finalizing', status: 'pending', message: 'Optimizing knowledge base...' }
         ]
       });
 
+      // Upload files
+      console.log('Uploading files...');
+      const fileObjects = files.map(f => f.file);
+      const uploadResponse = await knowledgeBaseAPI.uploadFiles(fileObjects);
+      
+      console.log('Upload completed, starting processing...');
+      updateState({
+        uploadId: uploadResponse.upload_id,
+        // Update upload step to completed
+        processingSteps: [
+          { step: 'Uploading files', status: 'completed', message: 'PDF files uploaded successfully' },
+          { step: 'Text extraction', status: 'processing', message: 'Initializing document processing...' },
+          { step: 'Creating embeddings', status: 'pending', message: 'Generating vector embeddings...' },
+          { step: 'Building vector store', status: 'pending', message: 'Creating searchable index...' },
+          { step: 'Finalizing', status: 'pending', message: 'Optimizing knowledge base...' }
+        ]
+      });
+
+      // Start processing
+      await knowledgeBaseAPI.processDocuments(uploadResponse.upload_id);
+      
+      console.log('Processing started, switching to processing status...');
+      updateState({
+        uploadStatus: 'processing'
+      });
+
     } catch (error) {
       console.error('Processing failed:', error);
-      const errorSteps = processingSteps.map(step => 
+      const errorSteps = processingSteps.length > 0 ? processingSteps.map(step => 
         step.status === 'processing' ? { ...step, status: 'error', message: 'Processing failed' } : step
-      );
+      ) : [
+        { step: 'Upload failed', status: 'error', message: error.response?.data?.detail || error.message }
+      ];
       
       updateState({
         uploadStatus: 'error',
@@ -278,6 +302,25 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
                   )}
                   {uploadStatus === 'success' ? 'Processing Complete!' : 'Processing Status'}
                 </h3>
+                
+                {/* Overall Progress Bar */}
+                {uploadStatus === 'processing' && (
+                  <div className="mb-6">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm font-medium text-gray-700">Overall Progress</span>
+                      <span className="text-sm font-medium text-gray-700">
+                        {files.length > 0 && files[0].progress ? `${files[0].progress}%` : '0%'}
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className="bg-gradient-to-r from-red-500 to-red-600 h-2 rounded-full transition-all duration-500"
+                        style={{ width: `${files.length > 0 && files[0].progress ? files[0].progress : 0}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+                
                 <div className="space-y-4">
                   {processingSteps.map((step, index) => (
                     <div key={index} className="flex items-center space-x-4 p-4 bg-gray-50 rounded-xl border border-gray-200">
