@@ -49,22 +49,18 @@ const Admin = () => {
     if (!isAuthenticated) return;
     
     try {
-      const [statusRes, logsRes, analyticsRes] = await Promise.all([
+      const [systemStatus, logs, analytics] = await Promise.all([
         adminAPI.getSystemStatus(password),
-        adminAPI.getLogs(password),
+        adminAPI.getLogs({}, password),
         adminAPI.getAnalytics(password)
       ]);
 
-      if (statusRes.ok && logsRes.ok && analyticsRes.ok) {
-        setSystemStats(await statusRes.json());
-        setLogs(await logsRes.json());
-        setAnalytics(await analyticsRes.json());
-      } else {
-        throw new Error('Failed to fetch data');
-      }
+      setSystemStats(systemStatus);
+      setLogs(logs.logs || []);
+      setAnalytics(analytics);
     } catch (error) {
       console.error('Error fetching admin data:', error);
-      if (error.message.includes('401') || error.message.includes('Unauthorized')) {
+      if (error.response?.status === 401 || error.message.includes('401') || error.message.includes('Unauthorized')) {
         setIsAuthenticated(false);
         setPassword('');
       }
