@@ -313,7 +313,11 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
                 <FileText className="mr-3 text-red-500" size={24} />
                 Uploaded Files ({files.length})
               </h3>
-              {uploadStatus === 'idle' && (
+              {/* Debug info */}
+              <div className="text-xs text-gray-500 mb-2">
+                Status: {uploadStatus} | Steps: {processingSteps.length}
+              </div>
+              {(uploadStatus === 'idle' || uploadStatus === 'error') && (
                 <div className="space-x-3">
                   <button
                     onClick={processFiles}
@@ -327,6 +331,12 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
                     className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-2.5 rounded-xl transition-colors font-semibold"
                   >
                     Clear All
+                  </button>
+                  <button
+                    onClick={() => updateState({ uploadStatus: 'idle', processingSteps: [], processingError: null })}
+                    className="bg-yellow-100 hover:bg-yellow-200 text-yellow-700 px-4 py-2.5 rounded-xl transition-colors font-medium text-sm"
+                  >
+                    Reset Status
                   </button>
                 </div>
               )}
