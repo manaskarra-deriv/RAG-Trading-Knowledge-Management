@@ -80,18 +80,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# LiteLLM Configuration
+# LiteLLM Configuration with fallback
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")  # Default to OpenAI if not set
-OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", "gpt-3.5-turbo")  # Default model
+API_BASE_URL = os.getenv("API_BASE_URL", "https://litellm.deriv.ai/v1")  # Primary API
+FALLBACK_API_BASE_URL = "https://api.openai.com/v1"  # Fallback to OpenAI
+OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")  # Updated default model
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")  # Default embedding model
+
+# Global flag to track which API is being used
+current_api_base = API_BASE_URL
+api_fallback_used = False
 
 # Validate environment variables
 if not OPENAI_API_KEY:
     logger.error("OPENAI_API_KEY environment variable is required")
     raise ValueError("OPENAI_API_KEY environment variable is required")
 
-logger.info(f"Using API Base URL: {API_BASE_URL}")
+logger.info(f"Primary API Base URL: {API_BASE_URL}")
+logger.info(f"Fallback API Base URL: {FALLBACK_API_BASE_URL}")
 logger.info(f"Using Model: {OPENAI_MODEL_NAME}")
 logger.info(f"Using Embedding Model: {EMBEDDING_MODEL}")
 
@@ -213,15 +219,17 @@ def add_log(level: str, message: str, user: str = None, query: str = None, respo
     logger.info(f"{level}: {message}")
 
 def create_custom_retrieval_config():
-    """Create a custom RetrievalConfig with LiteLLM settings"""
+    """Create a custom RetrievalConfig with LiteLLM settings and fallback support"""
+    global current_api_base, api_fallback_used
+    
     config = RetrievalConfig()
     
     # Always use the embedding model from environment variables
     config.embedding_model = EMBEDDING_MODEL
     
     # Set the base URL for LiteLLM support (if different from OpenAI)
-    if API_BASE_URL != "https://api.openai.com/v1":
-        config.base_url = API_BASE_URL
+    if current_api_base != "https://api.openai.com/v1":
+        config.base_url = current_api_base
     
     return config
 
@@ -249,7 +257,11 @@ async def startup_event():
     global retriever
     add_log("INFO", f"Trading RAG API server starting up with LiteLLM support")
     add_log("INFO", f"Loaded {len(system_logs)} existing log entries from persistent storage")
-    add_log("INFO", f"API Base URL: {API_BASE_URL}")
+    
+    # Initialize API with fallback
+    await initialize_api_with_fallback()
+    
+    add_log("INFO", f"API Base URL: {current_api_base}")
     add_log("INFO", f"Chat Model: {OPENAI_MODEL_NAME}")
     add_log("INFO", f"Embedding Model: {EMBEDDING_MODEL}")
     
@@ -272,7 +284,8 @@ async def root():
         "message": "Trading RAG API Server with LiteLLM Support", 
         "status": "running", 
         "docs": "/docs",
-        "api_base_url": API_BASE_URL,
+        "api_base_url": current_api_base,
+        "api_fallback_used": api_fallback_used,
         "model": OPENAI_MODEL_NAME,
         "embedding_model": EMBEDDING_MODEL
     }
@@ -283,7 +296,8 @@ async def health_check():
     return {
         "status": "healthy", 
         "timestamp": datetime.now(),
-        "api_base_url": API_BASE_URL,
+        "api_base_url": current_api_base,
+        "api_fallback_used": api_fallback_used,
         "model": OPENAI_MODEL_NAME,
         "embedding_model": EMBEDDING_MODEL
     }
@@ -344,7 +358,7 @@ async def process_documents_background(upload_dir: Path):
     global retriever, system_stats
     
     try:
-        add_log("INFO", "Starting document processing with LiteLLM configuration")
+        add_log("INFO", f"Starting document processing with API: {current_api_base}")
         
         # Count total files
         pdf_files = list(upload_dir.glob("*.pdf"))
@@ -372,7 +386,7 @@ async def process_documents_background(upload_dir: Path):
         config.pdf_folder = str(upload_dir)
         retriever = TradingKnowledgeRetriever(config)
         
-        # Step 2: Text extraction (10-70%)
+        # Step 2: Text extraction (10-60%)
         system_stats.update({
             "processing_progress": 10,
             "current_step": "Extracting text from PDFs",
@@ -380,45 +394,18 @@ async def process_documents_background(upload_dir: Path):
         })
         
         # Build retrieval system with progress tracking
-        # We'll update progress during the actual processing
-        def update_pdf_progress(processed_count, total_count):
-            # Text extraction takes 10-70% (60% range)
-            progress = 10 + int((processed_count / total_count) * 60)
-            system_stats.update({
-                "processing_progress": progress,
-                "current_step": f"Processing PDF {processed_count}/{total_count}",
-                "files_processed": processed_count
-            })
-        
-        # Monkey patch the retriever to report progress
-        original_build = retriever.build_retrieval_system
-        
-        def build_with_progress(pdf_folder):
-            # Call original build method
-            result = original_build(pdf_folder)
-            
-            # Update progress after text extraction is complete
-            system_stats.update({
-                "processing_progress": 70,
-                "current_step": "Text extraction completed",
-                "files_processed": total_files
-            })
-            
-            return result
-        
-        retriever.build_retrieval_system = build_with_progress
         build_stats = retriever.build_retrieval_system(str(upload_dir))
         
-        # Step 3: Creating embeddings (70-85%)
+        # Step 3: Creating embeddings (60-80%)
         system_stats.update({
-            "processing_progress": 75,
+            "processing_progress": 70,
             "current_step": "Generating vector embeddings",
             "steps_completed": ["Upload", "Initialize", "Text Extraction", "Embeddings"]
         })
         
-        # Step 4: Building vector store (85-95%)
+        # Step 4: Building vector store (80-95%)
         system_stats.update({
-            "processing_progress": 90,
+            "processing_progress": 85,
             "current_step": "Building searchable index",
             "steps_completed": ["Upload", "Initialize", "Text Extraction", "Embeddings", "Vector Store"]
         })
@@ -440,9 +427,38 @@ async def process_documents_background(upload_dir: Path):
             "steps_completed": ["Upload", "Initialize", "Text Extraction", "Embeddings", "Vector Store", "Finalize", "Complete"]
         })
         
-        add_log("SUCCESS", f"Document processing completed. Processed {build_stats['total_documents']} documents")
+        add_log("SUCCESS", f"Document processing completed. Processed {build_stats['total_documents']} documents using {current_api_base}")
         
     except Exception as e:
+        # If processing fails and we're using primary API, try fallback
+        if not api_fallback_used and "403" in str(e) or "Forbidden" in str(e):
+            add_log("WARNING", f"Primary API failed, attempting fallback: {str(e)}")
+            global current_api_base
+            current_api_base = FALLBACK_API_BASE_URL
+            api_fallback_used = True
+            
+            # Retry with fallback
+            try:
+                config = create_custom_retrieval_config()
+                config.pdf_folder = str(upload_dir)
+                retriever = TradingKnowledgeRetriever(config)
+                build_stats = retriever.build_retrieval_system(str(upload_dir))
+                
+                system_stats.update({
+                    "processing_status": "completed",
+                    "processing_progress": 100,
+                    "current_step": "Completed with fallback API",
+                    "documents_processed": build_stats["total_documents"],
+                    "files_processed": total_files,
+                    "steps_completed": ["Upload", "Initialize", "Text Extraction", "Embeddings", "Vector Store", "Finalize", "Complete"]
+                })
+                
+                add_log("SUCCESS", f"Document processing completed with fallback API. Processed {build_stats['total_documents']} documents")
+                return
+                
+            except Exception as fallback_error:
+                add_log("ERROR", f"Fallback processing also failed: {str(fallback_error)}")
+        
         system_stats.update({
             "processing_status": "error",
             "current_step": f"Error: {str(e)}",
@@ -624,7 +640,7 @@ async def generate_llm_response(query: str, documents: List, chat_history: List 
             # Set up OpenAI client with LiteLLM configuration
             client = openai.OpenAI(
                 api_key=os.getenv("OPENAI_API_KEY", "not-needed-for-litellm"),
-                base_url=API_BASE_URL
+                base_url=current_api_base
             )
             
             # Create a comprehensive context from retrieved documents
@@ -897,21 +913,15 @@ async def get_system_status(admin_auth: bool = Depends(verify_admin_password)):
     """Get system status and statistics"""
     uptime = (datetime.now() - system_stats["uptime_start"]).total_seconds() / 3600
     
-    # Calculate average response time
-    if system_stats["query_history"]:
-        avg_response_time = sum(q["response_time"] for q in system_stats["query_history"]) / len(system_stats["query_history"])
-    else:
-        avg_response_time = 0.0
-    
     return SystemStatus(
         total_queries=system_stats["total_queries"],
         unique_users=len(system_stats["unique_users"]),
         documents_indexed=system_stats["documents_processed"],
-        average_response_time=round(avg_response_time, 2),
-        uptime_hours=round(uptime, 2),
+        average_response_time=system_stats["average_response_time"],
+        uptime_hours=uptime,
         retriever_loaded=retriever is not None,
         processing_status=system_stats["processing_status"],
-        api_base_url=API_BASE_URL,
+        api_base_url=current_api_base,
         model_name=OPENAI_MODEL_NAME,
         embedding_model=EMBEDDING_MODEL
     )
@@ -991,7 +1001,7 @@ async def get_analytics(admin_auth: bool = Depends(verify_admin_password)):
         "total_queries": system_stats["total_queries"],
         "error_rate": round((system_stats["error_count"] / max(system_stats["total_queries"], 1)) * 100, 2),
         "api_config": {
-            "base_url": API_BASE_URL,
+            "base_url": current_api_base,
             "model": OPENAI_MODEL_NAME,
             "embedding_model": EMBEDDING_MODEL
         }
@@ -1012,6 +1022,34 @@ async def internal_error_handler(request, exc):
         status_code=500,
         content={"detail": "Internal server error"}
     )
+
+async def test_api_connectivity(api_base_url: str) -> bool:
+    """Test if the API endpoint is accessible"""
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Test with a simple request to the base URL
+            response = await client.get(f"{api_base_url.rstrip('/v1')}")
+            return response.status_code != 403  # 403 means blocked by Cloudflare
+    except Exception as e:
+        logger.warning(f"API connectivity test failed for {api_base_url}: {e}")
+        return False
+
+async def initialize_api_with_fallback():
+    """Initialize API with fallback logic"""
+    global current_api_base, api_fallback_used
+    
+    # Test primary API
+    if await test_api_connectivity(API_BASE_URL):
+        current_api_base = API_BASE_URL
+        api_fallback_used = False
+        logger.info(f"Using primary API: {current_api_base}")
+    else:
+        # Fallback to OpenAI API
+        current_api_base = FALLBACK_API_BASE_URL
+        api_fallback_used = True
+        logger.warning(f"Primary API blocked, falling back to: {current_api_base}")
+        add_log("WARNING", f"Primary API {API_BASE_URL} blocked, using fallback {current_api_base}")
 
 if __name__ == "__main__":
     # Create necessary directories

@@ -1,268 +1,188 @@
-# RAG Trading Knowledge Management - Deployment Guide
+# Deployment Guide: Render + Vercel
 
-Complete deployment guide for the RAG Trading Knowledge Management system using Render (backend) and Vercel (frontend).
+This guide explains how to deploy the Trading RAG application with backend on Render and frontend on Vercel.
 
-## 🏗️ Architecture Overview
+## 🔧 Prerequisites
 
-- **Backend**: FastAPI application with LiteLLM integration
-- **Frontend**: React application with admin panel
-- **Database**: FAISS vector store for document embeddings
-- **AI Service**: OpenAI/LiteLLM for chat and embeddings
-
-## 🚀 Quick Start
-
-### Prerequisites
-- GitHub account
-- Render account (for backend)
-- Vercel account (for frontend)
+- GitHub repository (already set up)
+- Render account (render.com)
+- Vercel account (vercel.com)
 - OpenAI API key
 
-### 1. Backend Deployment (Render)
+## 🚀 Backend Deployment (Render)
 
-1. **Create Web Service**
-   - Go to [Render Dashboard](https://dashboard.render.com)
-   - Click "New +" → "Web Service"
-   - Connect your GitHub repository
-   - Select the repository and branch
+### 1. Create Render Web Service
 
-2. **Configure Service**
-   ```
-   Name: trading-rag-backend
-   Environment: Python
-   Region: Oregon (or preferred)
-   Branch: main
-   Root Directory: backend
-   Build Command: pip install --upgrade pip && pip install -r requirements.txt
-   Start Command: python main.py
-   ```
+1. Go to [Render Dashboard](https://dashboard.render.com)
+2. Click "New +" → "Web Service"
+3. Connect your GitHub repository: `mrudula-deriv/RAG-Trading-Knowledge-Management`
+4. Configure the service:
 
-3. **Environment Variables**
-   ```bash
-   OPENAI_API_KEY=your_openai_api_key_here
-   API_BASE_URL=https://api.openai.com/v1
-   OPENAI_MODEL_NAME=gpt-4o-mini
-   EMBEDDING_MODEL=text-embedding-3-small
-   ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,https://your-frontend-url.vercel.app
-   ```
+**Basic Settings:**
+- **Name**: `trading-rag-backend`
+- **Region**: Oregon (US West)
+- **Branch**: `main`
+- **Root Directory**: `backend`
+- **Runtime**: Python 3
 
-4. **Deploy**
-   - Click "Create Web Service"
-   - Wait for deployment (usually 5-10 minutes)
-   - Note your backend URL: `https://your-service-name.onrender.com`
+**Build & Deploy:**
+- **Build Command**: `pip install -r requirements.txt`
+- **Start Command**: `python main.py`
 
-### 2. Frontend Deployment (Vercel)
+### 2. Environment Variables
 
-1. **Import Project**
-   - Go to [Vercel Dashboard](https://vercel.com/dashboard)
-   - Click "New Project"
-   - Import from GitHub
-   - Select your repository
+Add these environment variables in Render:
 
-2. **Configure Build Settings**
-   ```
-   Framework Preset: Create React App
-   Root Directory: frontend
-   Build Command: npm run build
-   Output Directory: build
-   ```
-
-3. **Environment Variables**
-   ```bash
-   REACT_APP_API_URL=https://your-backend-url.onrender.com
-   ```
-
-4. **Deploy**
-   - Click "Deploy"
-   - Wait for build completion
-   - Your app will be available at: `https://your-project.vercel.app`
-
-## 📋 Post-Deployment Setup
-
-### 1. Update CORS Settings
-After frontend deployment, update the backend's `ALLOWED_ORIGINS`:
-```bash
-ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,https://your-actual-frontend-url.vercel.app
+```env
+OPENAI_API_KEY=your_openai_api_key_here
+API_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL_NAME=gpt-3.5-turbo
+EMBEDDING_MODEL=text-embedding-3-small
+ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,https://your-frontend-url.vercel.app
 ```
 
-### 2. Upload Documents
-1. Visit your frontend URL
-2. Go to Admin panel (password: `DerivRAG`)
-3. Upload PDF documents
-4. Wait for processing to complete
+**Important:** Update `ALLOWED_ORIGINS` with your actual Vercel frontend URL after deployment.
 
-### 3. Test the System
-- Try asking questions about your documents
-- Verify responses are relevant
-- Check admin analytics
+### 3. Health Check
 
-## 🔧 Troubleshooting
+- **Health Check Path**: `/health`
 
-### Critical Issue: Cloudflare Blocking LiteLLM Endpoint
+### 4. Deploy
 
-**Problem**: The LiteLLM endpoint `https://litellm.deriv.ai/v1` is being blocked by Cloudflare, preventing document processing from completing.
+Click "Create Web Service" and wait for deployment to complete.
 
-**Symptoms**:
-- Document upload succeeds
-- Processing starts but fails during embedding generation
-- Error logs show "Sorry, you have been blocked" HTML response
-- Processing gets stuck at "Building FAISS vector store..."
-
-**Solution**:
-
-1. **Update Environment Variables in Render Dashboard**:
-   - Go to your Render service → Environment tab
-   - Update these variables (dashboard settings override render.yaml):
-     ```
-     API_BASE_URL=https://api.openai.com/v1
-     OPENAI_MODEL_NAME=gpt-4o-mini
-     EMBEDDING_MODEL=text-embedding-3-small
-     ```
-   - Click "Save Changes" and select "Save and Deploy"
-
-2. **Verify Configuration**:
-   - Check deployment logs to confirm correct API base URL
-   - Look for: `Using API Base URL: https://api.openai.com/v1`
-   - Test document processing with a small PDF
-
-3. **Alternative Solutions**:
-   - Use a different LiteLLM endpoint if available
-   - Contact LiteLLM provider about Cloudflare issues
-   - Implement retry logic with exponential backoff
-
-### Common Issues
-
-#### CORS Errors
-```
-Access to fetch at 'backend-url' from origin 'frontend-url' has been blocked by CORS policy
-```
-**Solution**: Update `ALLOWED_ORIGINS` in backend environment variables
-
-#### API Connection Issues
-```
-Failed to fetch from backend
-```
-**Solutions**:
-- Verify `REACT_APP_API_URL` is correct
-- Check backend service is running
-- Test backend health endpoint: `/health`
-
-#### Document Processing Failures
-```
-Document processing failed
-```
-**Solutions**:
-- Check OpenAI API key is valid and has quota
-- Verify API base URL is accessible
-- Check file format (PDF only)
-- Monitor backend logs during processing
-
-#### Admin Panel Access Issues
-```
-401 Unauthorized
-```
-**Solutions**:
-- Password is case-sensitive: `DerivRAG`
-- Clear browser cache
-- Check network tab for API errors
-
-### Debugging Steps
-
-1. **Check Backend Health**:
-   ```bash
-   curl https://your-backend-url.onrender.com/health
-   ```
-
-2. **Check Frontend Environment**:
-   - Open browser dev tools
-   - Check if `REACT_APP_API_URL` is set correctly
-   - Look for console errors
-
-3. **Monitor Logs**:
-   - Render: Service logs in dashboard
-   - Vercel: Function logs in dashboard
-   - Browser: Console and Network tabs
-
-## 📊 Monitoring and Maintenance
-
-### Health Checks
-- Backend: `https://your-backend-url.onrender.com/health`
-- Frontend: Should load without console errors
-
-### Persistent Logging
-- Admin logs are stored in `persistent_logs.json`
-- Survives backend restarts
-- Tracks queries, errors, and system events
-- Access via admin panel (password: `DerivRAG`)
-
-### Performance Monitoring
-- Monitor response times in admin analytics
-- Check memory usage during document processing
-- Consider upgrading Render plan for better performance
-
-## 🔐 Security Considerations
-
-### API Keys
-- Never commit API keys to version control
-- Use environment variables for all secrets
-- Rotate keys regularly
-- Monitor API usage and billing
-
-### CORS Configuration
-- Only allow necessary origins
-- Update `ALLOWED_ORIGINS` when adding new domains
-- Avoid using wildcards in production
-
-### Admin Access
-- Default password: `DerivRAG`
-- Consider implementing proper authentication
-- Monitor admin panel access logs
-
-## 🚀 Performance Optimization
-
-### Backend
-- Use appropriate Render plan for your usage
-- Monitor memory during document processing
-- Implement caching for frequently accessed data
-- Consider using Redis for session storage
-
-### Frontend
-- Enable Vercel's edge caching
-- Optimize bundle size
-- Use lazy loading for components
-- Implement proper error boundaries
-
-## 📝 Deployment Checklist
-
-- [ ] Backend deployed and health check passes
-- [ ] Frontend deployed and loads without errors
-- [ ] Environment variables configured correctly
-- [ ] CORS settings updated with frontend URL
-- [ ] Document upload and processing works
-- [ ] Chat functionality works end-to-end
-- [ ] Admin panel accessible (password: `DerivRAG`)
-- [ ] Persistent logging working
-- [ ] API endpoints responding correctly
-- [ ] Error handling working properly
-
-## 🆘 Getting Help
-
-If you encounter issues:
-
-1. **Check this guide** for common solutions
-2. **Review logs** in Render and Vercel dashboards
-3. **Test with minimal examples** (single document, simple query)
-4. **Check API quotas** and billing status
-5. **Verify environment variables** are set correctly
-
-## 📚 Additional Resources
-
-- [Render Documentation](https://render.com/docs)
-- [Vercel Documentation](https://vercel.com/docs)
-- [OpenAI API Documentation](https://platform.openai.com/docs)
-- [FastAPI Documentation](https://fastapi.tiangolo.com/)
-- [React Documentation](https://reactjs.org/docs)
+**Your backend URL will be**: `https://trading-rag-backend.onrender.com`
 
 ---
 
-**Last Updated**: January 2025  
-**Version**: 2.0.0
+## 🌐 Frontend Deployment (Vercel)
+
+### 1. Create Vercel Project
+
+1. Go to [Vercel Dashboard](https://vercel.com/dashboard)
+2. Click "New Project"
+3. Import your GitHub repository: `mrudula-deriv/RAG-Trading-Knowledge-Management`
+4. Configure the project:
+
+**Project Settings:**
+- **Framework Preset**: Create React App
+- **Root Directory**: `frontend`
+- **Build Command**: `npm run build`
+- **Output Directory**: `build`
+
+### 2. Environment Variables
+
+Add this environment variable in Vercel:
+
+```env
+REACT_APP_API_URL=https://trading-rag-backend.onrender.com
+```
+
+*Replace with your actual Render backend URL*
+
+### 3. Deploy
+
+Click "Deploy" and wait for deployment to complete.
+
+**Your frontend URL will be**: `https://your-project-name.vercel.app`
+
+---
+
+## 🔒 Important Configuration
+
+### Backend CORS Update
+
+After getting your Vercel frontend URL, update the CORS settings in `backend/main.py`:
+
+```python
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000", 
+        "http://127.0.0.1:3000",
+        "https://your-project-name.vercel.app"  # Add your Vercel URL
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+Then redeploy the backend.
+
+---
+
+## 📊 Persistent Logging Features
+
+✅ **Admin logs are now persistent and survive restarts!**
+
+- Logs stored in `persistent_logs.json` file
+- Automatically saves after each log entry
+- Keeps last 10,000 entries to prevent file bloat
+- Tracks all user queries, response times, and system events
+- Password: `DerivRAG` for admin access
+
+### What's Tracked:
+- All user queries and responses
+- System startup/shutdown events
+- Error messages and warnings
+- User session information
+- API response times
+- Document processing status
+
+---
+
+## 🧪 Testing Deployment
+
+### 1. Test Backend
+```bash
+curl https://your-backend-url.onrender.com/health
+```
+
+### 2. Test Frontend
+Visit your Vercel URL and verify:
+- Chat functionality works
+- Knowledge base upload works
+- Admin panel (password: `DerivRAG`)
+- Logs are persistent across restarts
+
+---
+
+## 🔧 Troubleshooting
+
+### Common Issues:
+
+1. **CORS Errors**: Update frontend URL in backend CORS settings
+2. **Environment Variables**: Double-check all env vars are set correctly
+3. **Build Failures**: Check build logs for missing dependencies
+4. **API Connection**: Verify backend URL in frontend env vars
+
+### Logs Access:
+- Render: Check service logs in dashboard
+- Vercel: Check function logs in dashboard
+- Application: Use admin panel with password `DerivRAG`
+
+---
+
+## 📝 Post-Deployment Checklist
+
+- [ ] Backend health check returns 200
+- [ ] Frontend loads without console errors
+- [ ] Chat functionality works end-to-end
+- [ ] File upload and processing works
+- [ ] Admin panel accessible with password
+- [ ] Persistent logs working (survive backend restart)
+- [ ] CORS configured for your domains
+
+---
+
+## 🔐 Security Notes
+
+- Admin password is hardcoded as `DerivRAG` 
+- Change this in production by updating the password check in backend
+- OpenAI API key should be kept secure in environment variables
+- Consider rate limiting for production use
+
+---
+
+**Your app is now deployed and production-ready!** 🎉 

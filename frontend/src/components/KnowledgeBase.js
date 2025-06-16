@@ -66,65 +66,21 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
       { step: 'Finalizing', message: 'Optimizing knowledge base...' }
     ];
 
-    // Map backend progress to frontend steps based on actual progress ranges
     const updatedSteps = steps.map((step, index) => {
-      if (index === 0) {
-        // Uploading files: 0-10%
-        return { 
-          ...step, 
-          status: status.progress >= 5 ? 'completed' : 'processing',
-          message: status.progress >= 5 ? 'PDF files uploaded successfully' : 'Uploading PDF files...'
-        };
-      } else if (index === 1) {
-        // Text extraction: 10-70%
-        if (status.progress >= 70) {
-          return { ...step, status: 'completed', message: 'Text extraction completed' };
-        } else if (status.progress >= 10) {
-          return { 
-            ...step, 
-            status: 'processing', 
-            message: status.current_step || 'Extracting text from PDFs...'
-          };
-        } else {
-          return { ...step, status: 'pending' };
-        }
-      } else if (index === 2) {
-        // Creating embeddings: 70-85%
-        if (status.progress >= 85) {
-          return { ...step, status: 'completed', message: 'Vector embeddings generated' };
-        } else if (status.progress >= 70) {
-          return { ...step, status: 'processing', message: 'Generating vector embeddings...' };
-        } else {
-          return { ...step, status: 'pending' };
-        }
-      } else if (index === 3) {
-        // Building vector store: 85-95%
-        if (status.progress >= 95) {
-          return { ...step, status: 'completed', message: 'Searchable index created' };
-        } else if (status.progress >= 85) {
-          return { ...step, status: 'processing', message: 'Creating searchable index...' };
-        } else {
-          return { ...step, status: 'pending' };
-        }
-      } else if (index === 4) {
-        // Finalizing: 95-100%
-        if (status.progress >= 100) {
-          return { ...step, status: 'completed', message: 'Knowledge base ready!' };
-        } else if (status.progress >= 95) {
-          return { ...step, status: 'processing', message: 'Finalizing knowledge base...' };
-        } else {
-          return { ...step, status: 'pending' };
-        }
+      if (index < Math.floor(status.progress / 20)) {
+        return { ...step, status: 'completed' };
+      } else if (index === Math.floor(status.progress / 20)) {
+        return { ...step, status: 'processing' };
+      } else {
+        return { ...step, status: 'pending' };
       }
-      return { ...step, status: 'pending' };
     });
 
-    // Update file progress with actual progress value
+    // Update file progress
     const updatedFiles = files.map(file => ({
       ...file,
       progress: status.progress,
-      status: status.status === 'completed' ? 'completed' : 
-              status.status === 'error' ? 'error' : 'processing'
+      status: status.status === 'completed' ? 'completed' : 'processing'
     }));
 
     updateState({
@@ -138,15 +94,12 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
     let intervalId;
     
     if (uploadStatus === 'processing') {
-      console.log('Starting processing status polling...');
       intervalId = setInterval(async () => {
         try {
           const status = await knowledgeBaseAPI.getProcessingStatus();
-          console.log('Processing status update:', status);
           updateProcessingStatus(status);
           
           if (status.status === 'completed') {
-            console.log('Processing completed!');
             updateState({
               uploadStatus: 'success',
               vectorStoreStats: {
@@ -159,7 +112,6 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
             });
             clearInterval(intervalId);
           } else if (status.status === 'error') {
-            console.log('Processing error:', status.error_message);
             updateState({
               uploadStatus: 'error',
               processingError: status.error_message
@@ -173,10 +125,7 @@ const KnowledgeBase = ({ knowledgeBaseState, setKnowledgeBaseState }) => {
     }
 
     return () => {
-      if (intervalId) {
-        console.log('Stopping processing status polling');
-        clearInterval(intervalId);
-      }
+      if (intervalId) clearInterval(intervalId);
     };
   }, [uploadStatus, files, updateState, updateProcessingStatus]);
 
