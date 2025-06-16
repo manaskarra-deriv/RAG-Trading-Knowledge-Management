@@ -18,4 +18,4 @@ services:
       - key: EMBEDDING_MODEL
         value: text-embedding-3-small
       - key: ALLOWED_ORIGINS
-        value: http://localhost:3000,http://127.0.0.1:3000,https://trading-rag-frontend.vercel.app,https://rag-trading-knowledge-management.vercel.app 
+        value: http://localhost:3000,http://127.0.0.1:3000,https://trading-rag-frontend.vercel.app,https://rag-trading-knowledge-management.vercel.app,https://rag-trading-knowledge-management-3yaeu9tk.vercel.app 

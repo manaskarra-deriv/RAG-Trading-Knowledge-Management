@@ -63,6 +63,7 @@ ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS",
 PRODUCTION_ORIGINS = [
     "https://trading-rag-frontend.vercel.app",  # Main frontend URL
     "https://rag-trading-knowledge-management.vercel.app",  # Actual deployed frontend URL
+    "https://rag-trading-knowledge-management-3yaeu9tk.vercel.app",  # Current Vercel deployment URL
     # Add team member domains here as needed
 ]
 
